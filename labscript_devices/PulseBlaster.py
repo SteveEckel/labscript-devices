@@ -514,8 +514,12 @@ class PulseBlaster(PseudoclockDevice):
                         
                 flagstring = ''.join([str(flag) for flag in flags])
             
-                # The long delay instruction, if any. Clock edges are low: 
-                if n_long_delays:
+                # The long delay instruction, if any. Clock edges are low:
+                if n_long_delays==1:
+                    pb_inst.append({'freqs': freqregs, 'amps': ampregs, 'phases': phaseregs, 'enables':dds_enables, 'phase_resets':phase_resets,
+                                'flags': flagstring, 'instruction': 'CONTINUE',
+                                'data': 0, 'delay': self.long_delay*1e9})
+                elif n_long_delays>1:
                     pb_inst.append({'freqs': freqregs, 'amps': ampregs, 'phases': phaseregs, 'enables':dds_enables, 'phase_resets':phase_resets,
                                 'flags': flagstring, 'instruction': 'LONG_DELAY',
                                 'data': int(n_long_delays), 'delay': self.long_delay*1e9})
@@ -542,7 +546,11 @@ class PulseBlaster(PseudoclockDevice):
                     n_long_delays -= 1
                     remaining_delay += self.long_delay
                 
-                if n_long_delays:
+                if n_long_delays==1:
+                    pb_inst.append({'freqs': freqregs, 'amps': ampregs, 'phases': phaseregs, 'enables':dds_enables, 'phase_resets':phase_resets,
+                                'flags': flagstring, 'instruction': 'CONTINUE',
+                                'data': 0, 'delay': self.long_delay*1e9})
+                elif n_long_delays>1:
                     pb_inst.append({'freqs': freqregs, 'amps': ampregs, 'phases': phaseregs, 'enables':dds_enables, 'phase_resets':phase_resets,
                                 'flags': flagstring, 'instruction': 'LONG_DELAY',
                                 'data': int(n_long_delays), 'delay': self.long_delay*1e9})
