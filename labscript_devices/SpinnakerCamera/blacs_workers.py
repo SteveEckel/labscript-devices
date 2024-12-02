@@ -212,7 +212,7 @@ class Spinnaker_Camera(object):
             trigger_cmd.Execute()
 
 
-    def configure_acquisition(self, continuous=True, bufferCount=10):
+    def configure_acquisition(self, continuous=True, bufferCount=100):
         self.pix_fmt = self.get_attribute('PixelFormat')
         self.height = self.get_attribute('Height')
         self.width = self.get_attribute('Width')
@@ -221,17 +221,16 @@ class Spinnaker_Camera(object):
         # the camera will generally move faster than BLACS, and so the buffer
         # will fill up.  With a Flea3, I was unable to solve the prolem
         # easily.  It really is quite annoying.
+        self.set_stream_attribute('StreamBufferCountMode', 'Manual')
+        self.set_stream_attribute('StreamBufferCountManual', bufferCount)
+
         if continuous:
-            self.set_stream_attribute('StreamBufferCountMode', 'Manual')
-            self.set_stream_attribute('StreamBufferCountManual', bufferCount)
             self.set_stream_attribute('StreamBufferHandlingMode', 'NewestFirst')
             self.set_attribute('AcquisitionMode', 'Continuous')
         elif bufferCount == 1:
-            self.set_stream_attribute('StreamBufferCountMode', 'Auto')
             self.set_stream_attribute('StreamBufferHandlingMode', 'OldestFirst')
             self.set_attribute('AcquisitionMode', 'SingleFrame')
         else:
-            self.set_stream_attribute('StreamBufferCountMode', 'Auto')
             self.set_stream_attribute('StreamBufferHandlingMode', 'OldestFirst')
             self.set_attribute('AcquisitionMode', 'MultiFrame')
             self.set_attribute('AcquisitionFrameCount', bufferCount)
