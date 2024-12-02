@@ -22,6 +22,10 @@ from time import sleep, perf_counter
 
 from labscript_devices.IMAQdxCamera.blacs_workers import IMAQdxCameraWorker
 
+import h5py
+import labscript_utils.properties
+import threading
+
 class Spinnaker_Camera(object):
     def __init__(self, serial_number):
         """Initialize Spinnaker API camera.
@@ -50,8 +54,10 @@ class Spinnaker_Camera(object):
         self.camera.Init()
         camList.Clear()
 
-        # Set the timeout to 5 s:
-        self.timeout = 5000 # in ms
+        # Set the default image timeout to 1000 ms.  This is how long we wait
+        # for a new image.  When we are grabbing multiple images (in buffered
+        # mode), this timeout can be added to the time between exposures
+        self.timeout = 1000 # in ms
 
         # Set the abort acquisition thingy:
         self._abort_acquisition = False
@@ -151,25 +157,48 @@ class Spinnaker_Camera(object):
         self.camera.EndAcquisition()
         return image
 
-    def grab(self):
+    def grab(self, timeout=None):
         """Grab and return single image during pre-configured acquisition."""
         #print('Grabbing...')
-        image_result = self.camera.GetNextImage(self.timeout)
+        if timeout is None:
+            image_result = self.camera.GetNextImage(self.timeout)
+        else:
+            image_result = self.camera.GetNextImage(timeout)
         img = self._decode_image_data(image_result.GetData())
         image_result.Release()
         return img
 
-    def grab_multiple(self, n_images, images):
+    def grab_multiple(self, n_images, images, timeouts=None):
         """Grab n_images into images array during buffered acquistion."""
-        print(f"Attempting to grab {n_images} images.")
+        if timeouts is not None:
+            if len(timeouts) != n_images:
+                raise ValueError(
+                    'Timeouts must be the have length n_images (%d).'%n_images+
+                    'Instead, it has length %d'%len(timeouts)
+                )
+
         for i in range(n_images):
+            # Calculate the timeout for this image:
+            if timeouts is None:
+                timeout = self.timeout
+            else:
+                timeout = int(timeouts[i]*1000) + self.timeout
+
+            # Print the initial message, if applicable:
+            if i==0:
+                print(f"Attempting to grab {n_images} images. Timeout {timeout/1000} s.")
+            else:
+                print(f"Got image {i} of {n_images}. Next timeout {timeout/1000} s.")
+
+            # This abort acqusition effectively does nothing, becuase the 
+            # the hold is at the timeout self.grab phase.
             if self._abort_acquisition:
                 print("Abort during acquisition.")
                 self._abort_acquisition = False
                 return
 
-            images.append(self.grab())
-            print(f"Got image {i+1} of {n_images}.")
+            images.append(self.grab(timeout=timeout))
+
         print(f"Got {len(images)} of {n_images} images.")
 
 
@@ -198,14 +227,11 @@ class Spinnaker_Camera(object):
             self.set_stream_attribute('StreamBufferHandlingMode', 'NewestFirst')
             self.set_attribute('AcquisitionMode', 'Continuous')
         elif bufferCount == 1:
-            # The StreamBufferCountMode originally was set to 'Auto', but this feature was depreciated by Spinnaker version 3.0.0.118
-            self.set_stream_attribute('StreamBufferCountMode', 'Manual')
-            self.set_stream_attribute('StreamBufferCountManual', 1)
+            self.set_stream_attribute('StreamBufferCountMode', 'Auto')
             self.set_stream_attribute('StreamBufferHandlingMode', 'OldestFirst')
             self.set_attribute('AcquisitionMode', 'SingleFrame')
         else:
-            self.set_stream_attribute('StreamBufferCountMode', 'Manual')
-            self.set_stream_attribute('StreamBufferCountManual', bufferCount)
+            self.set_stream_attribute('StreamBufferCountMode', 'Auto')
             self.set_stream_attribute('StreamBufferHandlingMode', 'OldestFirst')
             self.set_attribute('AcquisitionMode', 'MultiFrame')
             self.set_attribute('AcquisitionFrameCount', bufferCount)
@@ -230,7 +256,7 @@ class Spinnaker_Camera(object):
         return image.copy()
 
     def stop_acquisition(self):
-        print('Stopping acquisition...')
+        print('Stopping acquisition (camera.stop_acqusition)...')
         self.camera.EndAcquisition()
 
         # This is supposed to provide debugging info, but as with most things
@@ -242,7 +268,7 @@ class Spinnaker_Camera(object):
               (str(num_frames), str(failed_frames), str(underrun_frames)))
 
     def abort_acquisition(self):
-        print('Stopping acquisition...')
+        print('Stopping acquisition (camera.abort_acquisition)...')
         self._abort_acquisition = True
 
     def close(self):
@@ -257,6 +283,90 @@ class SpinnakerCameraWorker(IMAQdxCameraWorker):
 
     Inherits from IMAQdxCameraWorker."""
     interface_class = Spinnaker_Camera
+
+    def transition_to_buffered(self, device_name, h5_filepath, initial_values, fresh):
+        # This method is basically the same as the IMAQdx version, except that
+        # it calculates timeouts between frames to pass along to PySpin
+        if getattr(self, 'is_remote', False):
+            h5_filepath = path_to_local(h5_filepath)
+        if self.continuous_thread is not None:
+            # Pause continuous acquistion during transition_to_buffered:
+            self.stop_continuous(pause=True)
+        with h5py.File(h5_filepath, 'r') as f:
+            # Get the camera_attributes from the device_properties
+            properties = labscript_utils.properties.get(
+                f, self.device_name, 'device_properties'
+            )
+            camera_attributes = properties['camera_attributes']
+    
+            self.exception_on_failed_shot = properties['exception_on_failed_shot']
+            saved_attr_level = properties['saved_attribute_visibility_level']
+
+            # Get the exposures:
+            group = f['devices'][self.device_name]
+            if not 'EXPOSURES' in group:
+                return {}
+            self.h5_filepath = h5_filepath
+            self.exposures = group['EXPOSURES'][:]
+            self.n_images = len(self.exposures)
+
+            # Calculate the timeouts between images.  The first timeout is set
+            # to 30 s, because it may take that long for all devices to get
+            # set into buffered mode.
+            self.timeouts = [properties['stop_acquisition_timeout']]
+            for i in range(1, len(self.exposures)):
+                self.timeouts.append(self.exposures['t'][i] - self.exposures['t'][i-1])
+
+            self.stop_acquisition_timeout = np.sum(self.timeouts)
+
+        # Only reprogram attributes that differ from those last programmed in, or all of
+        # them if a fresh reprogramming was requested:
+        if fresh:
+            self.smart_cache = {}
+        self.set_attributes_smart(camera_attributes)
+        # Get the camera attributes, so that we can save them to the H5 file:
+        if saved_attr_level is not None:
+            self.attributes_to_save = self.get_attributes_as_dict(saved_attr_level)
+        else:
+            self.attributes_to_save = None
+        print(f"Configuring camera for {self.n_images} images.")
+        self.camera.configure_acquisition(continuous=False, bufferCount=self.n_images)
+        self.images = []
+        self.acquisition_thread = threading.Thread(
+            target=self.camera.grab_multiple,
+            args=(self.n_images, self.images, self.timeouts),
+            daemon=True,
+        )
+        self.acquisition_thread.start()
+        return {}
+
+    def abort(self):
+        if self.acquisition_thread is not None:
+            self.camera.abort_acquisition()
+            self.acquisition_thread.join()
+            self.acquisition_thread = None
+            self.camera.stop_acquisition()
+        self.camera._abort_acquisition = False
+        self.images = None
+        self.n_images = None
+        self.attributes_to_save = None
+        self.exposures = None
+        self.acquisition_thread = None
+        self.h5_filepath = None
+        self.stop_acquisition_timeout = None
+        self.exception_on_failed_shot = None
+        # Resume continuous acquisition, if any:
+        if self.continuous_dt is not None and self.continuous_thread is None:
+            self.start_continuous(self.continuous_dt)
+        return True
+
+    def abort_buffered(self):
+        print('Abort buffered called.')
+        return self.abort()
+    
+    def abort_transition_to_buffered(self):
+        print('Abort transition to buffered called.')
+        return self.abort()
 
     #def continuous_loop(self, dt):
     #    """Acquire continuously in a loop, with minimum repetition interval dt"""
