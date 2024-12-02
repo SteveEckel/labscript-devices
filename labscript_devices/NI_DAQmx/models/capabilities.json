@@ -253,6 +253,122 @@
         "supports_buffered_DO": true,
         "supports_semiperiod_measurement": false
     },
+    "PCIe-6341": {
+        "AI_range": [
+            -10.0,
+            10.0
+        ],
+        "AI_range_Diff": [
+            -10.0,
+            10.0
+        ],
+        "AI_start_delay": 7e-08,
+        "AI_term": "RSE",
+        "AI_term_cfg": {
+            "ai0": [
+                "RSE",
+                "NRSE",
+                "Diff"
+            ],
+            "ai1": [
+                "RSE",
+                "NRSE",
+                "Diff"
+            ],
+            "ai10": [
+                "RSE",
+                "NRSE"
+            ],
+            "ai11": [
+                "RSE",
+                "NRSE"
+            ],
+            "ai12": [
+                "RSE",
+                "NRSE"
+            ],
+            "ai13": [
+                "RSE",
+                "NRSE"
+            ],
+            "ai14": [
+                "RSE",
+                "NRSE"
+            ],
+            "ai15": [
+                "RSE",
+                "NRSE"
+            ],
+            "ai2": [
+                "RSE",
+                "NRSE",
+                "Diff"
+            ],
+            "ai3": [
+                "RSE",
+                "NRSE",
+                "Diff"
+            ],
+            "ai4": [
+                "RSE",
+                "NRSE",
+                "Diff"
+            ],
+            "ai5": [
+                "RSE",
+                "NRSE",
+                "Diff"
+            ],
+            "ai6": [
+                "RSE",
+                "NRSE",
+                "Diff"
+            ],
+            "ai7": [
+                "RSE",
+                "NRSE",
+                "Diff"
+            ],
+            "ai8": [
+                "RSE",
+                "NRSE"
+            ],
+            "ai9": [
+                "RSE",
+                "NRSE"
+            ]
+        },
+        "AO_range": [
+            -10.0,
+            10.0
+        ],
+        "max_AI_multi_chan_rate": 500000.0,
+        "max_AI_single_chan_rate": 500000.0,
+        "max_AO_sample_rate": 917431.1926605505,
+        "max_DO_sample_rate": 1000000.0,
+        "min_semiperiod_measurement": 1e-07,
+        "num_AI": 16,
+        "num_AO": 2,
+        "num_CI": 4,
+        "ports": {
+            "port0": {
+                "num_lines": 8,
+                "supports_buffered": true
+            },
+            "port1": {
+                "num_lines": 8,
+                "supports_buffered": false
+            },
+            "port2": {
+                "num_lines": 8,
+                "supports_buffered": false
+            }
+        },
+        "supports_buffered_AO": true,
+        "supports_buffered_DO": true,
+        "supports_semiperiod_measurement": true,
+        "supports_simultaneous_AI_sampling": false
+    },
     "PCIe-6343": {
         "AI_range": [
             -10.0,
